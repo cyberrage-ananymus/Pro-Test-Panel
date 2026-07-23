@@ -700,6 +700,8 @@ async def get_connections(_=Depends(require_auth)):
             "country_code": info.get("country_code"),
             "city": info.get("city"),
             "isp": info.get("isp"),
+            "lat": info.get("lat"),
+            "lon": info.get("lon"),
             "location": info.get("label", "Unknown"),
         })
     result.sort(key=lambda x: x.get("last_connected_at") or "", reverse=True)

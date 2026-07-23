@@ -18,6 +18,8 @@ import uvicorn
 import httpx
 import logging
 
+from geoip import geolocate_ips
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("CyberRage")
 
@@ -52,73 +54,6 @@ CONFIG = {
     "secret": _load_or_create_secret(),
     "host": os.environ.get("RAILWAY_PUBLIC_DOMAIN", "localhost"),
 }
-
-# IP Geolocation cache
-_geo_cache: dict = {}
-GEO_CACHE_TTL = 3600  # 1 hour
-
-async def get_ip_location(ip: str) -> dict:
-    if ip in _geo_cache:
-        cached = _geo_cache[ip]
-        if time.time() - cached.get("ts", 0) < GEO_CACHE_TTL:
-            return cached
-
-    result = {"country": "", "region": "", "city": "", "isp": "", "org": "", "as": "", "lat": 0, "lon": 0, "timezone": "", "reverse_dns": ""}
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp1 = await client.get(f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,timezone,mobile,proxy,hosting")
-            if resp1.status_code == 200:
-                d1 = resp1.json()
-                if d1.get("status") == "success":
-                    result["country"] = d1.get("country", "")
-                    result["country_code"] = d1.get("countryCode", "")
-                    result["region"] = d1.get("regionName", "")
-                    result["city"] = d1.get("city", "")
-                    result["isp"] = d1.get("isp", "")
-                    result["org"] = d1.get("org", "")
-                    result["as"] = d1.get("as", "")
-                    result["lat"] = d1.get("lat", 0)
-                    result["lon"] = d1.get("lon", 0)
-                    result["timezone"] = d1.get("timezone", "")
-                    result["is_proxy"] = d1.get("proxy", False)
-                    result["is_hosting"] = d1.get("hosting", False)
-                    result["is_mobile"] = d1.get("mobile", False)
-    except Exception:
-        pass
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp2 = await client.get(f"https://ipwhois.app/json/{ip}")
-            if resp2.status_code == 200:
-                d2 = resp2.json()
-                if d2.get("success"):
-                    if not result["country"]:
-                        result["country"] = d2.get("country", "")
-                    if not result["city"]:
-                        result["city"] = d2.get("city", "")
-                    if not result["isp"]:
-                        result["isp"] = d2.get("isp", "")
-                    if not result["timezone"]:
-                        result["timezone"] = d2.get("timezone", "")
-                    if not result["lat"]:
-                        result["lat"] = d2.get("latitude", 0)
-                    if not result["lon"]:
-                        result["lon"] = d2.get("longitude", 0)
-    except Exception:
-        pass
-
-    try:
-        import socket
-        rdns = socket.gethostbyaddr(ip)
-        if rdns:
-            result["reverse_dns"] = rdns[0]
-    except Exception:
-        pass
-
-    result["ts"] = time.time()
-    _geo_cache[ip] = result
-    return result
 
 app.add_middleware(
     CORSMiddleware,
@@ -363,6 +298,43 @@ def is_link_expired(link: dict) -> bool:
     except Exception:
         return False
 
+def expiry_progress(link: dict) -> dict | None:
+    """How much of a config's expiry window has elapsed.
+    Returns None if the config never expires. total_days comes from
+    'expires_days' (set on create/update); for older configs saved before
+    that field existed, it's derived from created_at -> expires_at instead.
+    """
+    exp = link.get("expires_at")
+    if not exp:
+        return None
+    try:
+        expires_dt = datetime.fromisoformat(exp)
+    except Exception:
+        return None
+
+    total_days = int(link.get("expires_days") or 0)
+    if total_days <= 0:
+        created = link.get("created_at")
+        if created:
+            try:
+                created_dt = datetime.fromisoformat(created)
+                total_days = max(1, round((expires_dt - created_dt).total_seconds() / 86400))
+            except Exception:
+                total_days = 0
+    if total_days <= 0:
+        return None
+
+    remaining_days = (expires_dt - datetime.now()).total_seconds() / 86400
+    elapsed_days = max(0.0, min(float(total_days), total_days - remaining_days))
+    percent = max(0.0, min(100.0, (elapsed_days / total_days) * 100))
+
+    return {
+        "total_days": total_days,
+        "elapsed_days": round(elapsed_days, 2),
+        "remaining_days": round(remaining_days, 2),
+        "percent": round(percent, 1),
+    }
+
 def is_link_allowed(link: dict | None) -> bool:
     if link is None:
         return False
@@ -422,6 +394,7 @@ async def ensure_default_link():
                     "created_at": datetime.now().isoformat(),
                     "active": True,
                     "expires_at": None,
+                    "expires_days": 0,
                     "note": "",
                     "is_default": True,
                     "sub_id": None,
@@ -707,10 +680,12 @@ async def get_connections(_=Depends(require_auth)):
             if not g["last_connected_at"] or ca > g["last_connected_at"]:
                 g["last_connected_at"] = ca
 
+    ips = list(grouped.keys())
+    geo = await geolocate_ips(http_client, ips)
+
     result = []
     for ip, g in grouped.items():
-        geo = await get_ip_location(ip)
-        location_parts = [p for p in [geo.get("city"), geo.get("region"), geo.get("country")] if p]
+        info = geo.get(ip, {})
         result.append({
             "ip": ip,
             "sessions": g["sessions"],
@@ -721,19 +696,11 @@ async def get_connections(_=Depends(require_auth)):
             "bytes_fmt": fmt_bytes(g["bytes"]),
             "connected_at": g["first_connected_at"],
             "last_connected_at": g["last_connected_at"],
-            "location": ", ".join(location_parts) if location_parts else "Unknown",
-            "isp": geo.get("isp", ""),
-            "country": geo.get("country", ""),
-            "country_code": geo.get("country_code", ""),
-            "lat": geo.get("lat", 0),
-            "lon": geo.get("lon", 0),
-            "timezone": geo.get("timezone", ""),
-            "is_proxy": geo.get("is_proxy", False),
-            "is_hosting": geo.get("is_hosting", False),
-            "is_mobile": geo.get("is_mobile", False),
-            "reverse_dns": geo.get("reverse_dns", ""),
-            "org": geo.get("org", ""),
-            "as": geo.get("as", ""),
+            "country": info.get("country"),
+            "country_code": info.get("country_code"),
+            "city": info.get("city"),
+            "isp": info.get("isp"),
+            "location": info.get("label", "Unknown"),
         })
     result.sort(key=lambda x: x.get("last_connected_at") or "", reverse=True)
 
@@ -747,6 +714,7 @@ async def make_link(
     label: str = "New Link",
     limit_bytes: int = 0,
     expires_at: str | None = None,
+    expires_days: int = 0,
     note: str = "",
     sub_id: str | None = None,
     protocol: str = DEFAULT_PROTOCOL,
@@ -772,6 +740,7 @@ async def make_link(
             "created_at": datetime.now().isoformat(),
             "active": True,
             "expires_at": expires_at,
+            "expires_days": max(0, expires_days),
             "note": (note or "").strip()[:200],
             "is_default": False,
             "sub_id": sub_id,
@@ -903,6 +872,7 @@ async def create_link(request: Request, _=Depends(require_auth)):
         label=body.get("label") or "New Link",
         limit_bytes=limit_bytes,
         expires_at=expires_at,
+        expires_days=exp_days,
         note=body.get("note") or "",
         sub_id=body.get("sub_id") or None,
         protocol=body.get("protocol") or DEFAULT_PROTOCOL,
@@ -918,6 +888,7 @@ async def create_link(request: Request, _=Depends(require_auth)):
         "uuid": uid,
         **link,
         "expired": False,
+        "expiry": expiry_progress(link),
         "vless_link": vless_link_for_link(link, uid, host),
         "sub_url": f"https://{host}/sub/{uid}",
     }
@@ -935,6 +906,7 @@ async def list_links(request: Request, _=Depends(require_auth)):
             **d,
             "protocol": proto,
             "expired": is_link_expired(d),
+            "expiry": expiry_progress(d),
             "vless_link": vless_link_for_link(d, uid, host),
             "sub_url": f"https://{host}/sub/{uid}",
             "connected_ips": len(unique_ips_for_uuid(uid)),
@@ -969,6 +941,7 @@ async def update_link(uid: str, request: Request, _=Depends(require_auth)):
         if "expires_days" in body:
             ed = int(body["expires_days"] or 0)
             link["expires_at"] = (datetime.now() + timedelta(days=ed)).isoformat() if ed > 0 else None
+            link["expires_days"] = ed if ed > 0 else 0
         if "fingerprint" in body:
             fp = str(body.get("fingerprint") or DEFAULT_FINGERPRINT).strip().lower()
             link["fingerprint"] = fp if fp in FINGERPRINTS else DEFAULT_FINGERPRINT

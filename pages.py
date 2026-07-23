@@ -340,23 +340,13 @@ a{color:inherit;text-decoration:none}
 @keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .empty{text-align:center;padding:40px;color:var(--t3);font-size:13px}
 .empty i{font-size:40px;color:var(--t3);margin-bottom:12px;display:block;opacity:.3}
-.conn-row{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-bottom:1px solid rgba(0,240,255,0.04);font-size:12.5px}
+.conn-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid rgba(0,240,255,0.04);font-size:12.5px}
 .conn-row:last-child{border-bottom:none}
-.conn-top{display:flex;align-items:center;gap:12px}
 .conn-ip{font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:600;min-width:120px}
+.conn-loc{color:var(--t2);min-width:140px;font-size:11.5px}
 .conn-label{color:var(--t2);flex:1}
 .conn-bytes{color:var(--t1);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:11px}
 .conn-sessions{color:var(--t3);font-size:11px}
-.conn-loc{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:11px;color:var(--t3);margin-top:2px;padding-right:4px}
-.conn-loc span{display:flex;align-items:center;gap:4px}
-.conn-loc i{color:var(--accent);font-size:12px}
-.conn-isp{color:var(--t2);font-weight:500}
-.conn-country{color:var(--accent);font-weight:600}
-.conn-tag{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:700;display:inline-flex;align-items:center;gap:3px}
-.conn-tag.proxy{background:var(--red-bg);color:var(--red-t)}
-.conn-tag.hosting{background:var(--amber-bg);color:var(--amber-t)}
-.conn-tag.mobile{background:var(--green-bg);color:var(--green-t)}
-.conn-rdns{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t3);word-break:break-all}
 .log-entry{padding:8px 12px;border-bottom:1px solid rgba(0,240,255,0.03);font-size:12px;display:flex;gap:10px;align-items:flex-start}
 .log-entry:last-child{border-bottom:none}
 .log-time{color:var(--t3);font-family:'JetBrains Mono',monospace;font-size:10px;white-space:nowrap;flex-shrink:0}
@@ -624,41 +614,19 @@ async function loadSubs(){
   }catch(e){}
 }
 
+function flagEmoji(cc){
+  if(!cc||cc.length!==2)return '';
+  return String.fromCodePoint(...[...cc.toUpperCase()].map(ch=>127397+ch.charCodeAt(0)));
+}
 async function loadConnections(){
   try{
     const d=await api('/api/connections');
     const el=$('#conn-list');
     if(!d.connections.length){el.innerHTML='<div class="empty"><i class="ph ph-gear-six"></i>No active connections</div>';return;}
     let h=d.connections.map(c=>{
-      const loc=c.location&&c.location!=='Unknown'?c.location:'';
-      const isp=c.isp||'';
-      const country=c.country||'';
-      const lat=c.lat||0;
-      const lon=c.lon||0;
-      const coords=lat&&lon?`${lat.toFixed(4)}, ${lon.toFixed(4)}`:'';
-      const tz=c.timezone||'';
-      const rdns=c.reverse_dns||'';
-      const isProxy=c.is_proxy;
-      const isHosting=c.is_hosting;
-      const isMobile=c.is_mobile;
-      return `<div class="conn-row">
-        <div class="conn-top">
-          <span class="conn-ip">${c.ip}</span>
-          <span class="conn-label">${c.label}</span>
-          <span class="conn-bytes">${c.bytes_fmt}</span>
-          <span class="conn-sessions">${c.sessions} sess</span>
-        </div>
-        ${loc||isp||coords?`<div class="conn-loc">
-          <span><i class="ph ph-map-pin"></i><span class="conn-country">${country}</span> ${loc}</span>
-          ${coords?`<span><i class="ph ph-compass"></i>${coords}</span>`:''}
-          ${tz?`<span><i class="ph ph-clock"></i>${tz.split('/').pop()}</span>`:''}
-          ${isp?`<span><i class="ph ph-radio-tower"></i><span class="conn-isp">${isp}</span></span>`:''}
-          ${isProxy?'<span class="conn-tag proxy">PROXY</span>':''}
-          ${isHosting?'<span class="conn-tag hosting">HOSTING</span>':''}
-          ${isMobile?'<span class="conn-tag mobile">MOBILE</span>':''}
-        </div>`:''}
-        ${rdns?`<div class="conn-loc"><span class="conn-rdns"><i class="ph ph-globe"></i>${rdns}</span></div>`:''}
-      </div>`;
+      const known=c.location&&c.location!=='Unknown';
+      const loc=known?`${flagEmoji(c.country_code)} ${c.location}`:'<span style="opacity:.5">Unknown</span>';
+      return `<div class="conn-row"><span class="conn-ip">${c.ip}</span><span class="conn-loc" title="${c.isp?c.isp.replace(/"/g,'&quot;'):''}">${loc}</span><span class="conn-label">${c.label}</span><span class="conn-bytes">${c.bytes_fmt}</span><span class="conn-sessions">${c.sessions} sess</span></div>`;
     }).join('');
     el.innerHTML=h;
   }catch(e){}
@@ -689,12 +657,21 @@ function renderLinks(){
     const total=l.limit_bytes||0;
     const pct=total>0?Math.min(100,(used/total)*100):0;
     const bar=total>0?`<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div><div class="progress-text">${l.used_fmt||'0 B'} / ${limit} (${pct.toFixed(1)}%)</div>`:`<div class="progress-text">${l.used_fmt||'0 B'} / Unlimited</div>`;
+    const ex=l.expiry;
+    let expBlock='';
+    if(ex){
+      const passed=Math.min(ex.total_days,Math.floor(ex.elapsed_days));
+      const remTxt=ex.remaining_days>0?`${Math.ceil(ex.remaining_days)}d left`:`expired ${Math.ceil(Math.abs(ex.remaining_days))}d ago`;
+      const fillCss=l.expired?'background:var(--red)':ex.percent>=90?'background:var(--amber)':'';
+      expBlock=`<div class="progress-bar"><div class="progress-fill" style="width:${ex.percent}%;${fillCss}"></div></div><div class="progress-text"><i class="ph ph-calendar-check"></i> ${passed}/${ex.total_days} days (${ex.percent.toFixed(1)}%) &bull; ${remTxt}</div>`;
+    }
     return `<div class="list-item">
       <div class="list-icon">${status}</div>
       <div class="list-info">
         <div class="list-name">${l.label} ${badge}</div>
         <div class="list-sub">${l.protocol} &bull; ${l.fingerprint} &bull; Port ${l.port} &bull; ${l.connected_ips||0} IPs</div>
         ${bar}
+        ${expBlock}
       </div>
       <div class="list-actions">
         <button class="btn btn-sm btn-g" onclick="copyText('${l.vless_link.replace(/'/g,"\\'")}')" title="Copy Link"><i class="ph ph-copy"></i></button>

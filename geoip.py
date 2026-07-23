@@ -19,7 +19,7 @@ GEO_TTL = 6 * 60 * 60  # re-check an IP after this many seconds
 _MAX_BATCH = 100  # ip-api.com batch endpoint limit per request
 _BATCH_URL = (
     "http://ip-api.com/batch"
-    "?fields=status,message,query,country,countryCode,regionName,city,isp"
+    "?fields=status,message,query,country,countryCode,regionName,city,lat,lon,isp"
 )
 
 _GEO_CACHE: dict[str, dict] = {}
@@ -40,13 +40,15 @@ def _is_public_ip(ip: str) -> bool:
     )
 
 
-def _entry(country=None, country_code=None, city=None, region=None, isp=None, label="Unknown") -> dict:
+def _entry(country=None, country_code=None, city=None, region=None, isp=None, lat=None, lon=None, label="Unknown") -> dict:
     return {
         "country": country,
         "country_code": country_code,
         "city": city,
         "region": region,
         "isp": isp,
+        "lat": lat,
+        "lon": lon,
         "label": label,
         "cached_at": time.time(),
     }
@@ -55,7 +57,7 @@ def _entry(country=None, country_code=None, city=None, region=None, isp=None, la
 async def geolocate_ips(client: httpx.AsyncClient, ips: list[str]) -> dict[str, dict]:
     """Resolve IPs to geo info via cache + ip-api.com batch lookups.
 
-    Returns {ip: {country, country_code, city, region, isp, label}}.
+    Returns {ip: {country, country_code, city, region, isp, lat, lon, label}}.
     Never raises; on any failure the affected IPs get an "Unknown" entry
     so the dashboard still renders.
     """
@@ -90,6 +92,8 @@ async def geolocate_ips(client: httpx.AsyncClient, ips: list[str]) -> dict[str, 
                         city=item.get("city"),
                         region=item.get("regionName"),
                         isp=item.get("isp"),
+                        lat=item.get("lat"),
+                        lon=item.get("lon"),
                         label=label,
                     )
                 else:

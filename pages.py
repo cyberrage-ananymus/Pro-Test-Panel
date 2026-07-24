@@ -346,6 +346,7 @@ a{color:inherit;text-decoration:none}
 .conn-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .conn-ip{font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:600}
 .conn-loc{color:var(--t2);font-size:11.5px;white-space:nowrap}
+.conn-isp{color:var(--t3);font-size:11px;font-style:italic}
 .conn-label{color:var(--t2)}
 .conn-bytes{color:var(--t1);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:11px}
 .conn-sessions{color:var(--t3);font-size:11px}
@@ -630,9 +631,10 @@ async function loadConnections(){
     let h=d.connections.map(c=>{
       const known=c.location&&c.location!=='Unknown';
       const loc=known?`${flagEmoji(c.country_code)} ${c.location}`:'<span style="opacity:.5">Unknown</span>';
+      const isp=c.isp?`<span class="conn-isp">${c.isp}</span>`:'';
       const coords=(c.lat!=null&&c.lon!=null)?`<a class="conn-coords" href="https://www.google.com/maps?q=${c.lat},${c.lon}" target="_blank" rel="noopener">${c.lat.toFixed(3)}, ${c.lon.toFixed(3)}</a>`:'';
       return `<div class="conn-row">
-        <div class="conn-main"><span class="conn-ip">${c.ip}</span><span class="conn-loc" title="${c.isp?c.isp.replace(/"/g,'&quot;'):''}">${loc}</span></div>
+        <div class="conn-main"><span class="conn-ip">${c.ip}</span><span class="conn-loc">${loc}</span>${isp}</div>
         <div class="conn-meta"><span class="conn-label">${c.label}</span><span class="conn-bytes">${c.bytes_fmt}</span><span class="conn-sessions">${c.sessions} sess</span>${coords}</div>
       </div>`;
     }).join('');

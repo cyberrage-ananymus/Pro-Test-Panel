@@ -340,18 +340,12 @@ a{color:inherit;text-decoration:none}
 @keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .empty{text-align:center;padding:40px;color:var(--t3);font-size:13px}
 .empty i{font-size:40px;color:var(--t3);margin-bottom:12px;display:block;opacity:.3}
-.conn-row{display:flex;flex-direction:column;gap:5px;padding:11px 14px;border-bottom:1px solid rgba(0,240,255,0.04);font-size:12.5px}
+.conn-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid rgba(0,240,255,0.04);font-size:12.5px}
 .conn-row:last-child{border-bottom:none}
-.conn-main{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.conn-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.conn-ip{font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:600}
-.conn-loc{color:var(--t2);font-size:11.5px;white-space:nowrap}
-.conn-isp{color:var(--t3);font-size:11px;font-style:italic}
-.conn-label{color:var(--t2)}
+.conn-ip{font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:600;min-width:120px}
+.conn-label{color:var(--t2);flex:1}
 .conn-bytes{color:var(--t1);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:11px}
 .conn-sessions{color:var(--t3);font-size:11px}
-.conn-coords{color:var(--t3);font-size:11px;font-family:'JetBrains Mono',monospace;text-decoration:none;border-bottom:1px dotted var(--t3)}
-.conn-coords:hover{color:var(--accent);border-color:var(--accent)}
 .log-entry{padding:8px 12px;border-bottom:1px solid rgba(0,240,255,0.03);font-size:12px;display:flex;gap:10px;align-items:flex-start}
 .log-entry:last-child{border-bottom:none}
 .log-time{color:var(--t3);font-family:'JetBrains Mono',monospace;font-size:10px;white-space:nowrap;flex-shrink:0}
@@ -619,25 +613,12 @@ async function loadSubs(){
   }catch(e){}
 }
 
-function flagEmoji(cc){
-  if(!cc||cc.length!==2)return '';
-  return String.fromCodePoint(...[...cc.toUpperCase()].map(ch=>127397+ch.charCodeAt(0)));
-}
 async function loadConnections(){
   try{
     const d=await api('/api/connections');
     const el=$('#conn-list');
     if(!d.connections.length){el.innerHTML='<div class="empty"><i class="ph ph-gear-six"></i>No active connections</div>';return;}
-    let h=d.connections.map(c=>{
-      const known=c.location&&c.location!=='Unknown';
-      const loc=known?`${flagEmoji(c.country_code)} ${c.location}`:'<span style="opacity:.5">Unknown</span>';
-      const isp=c.isp?`<span class="conn-isp">${c.isp}</span>`:'';
-      const coords=(c.lat!=null&&c.lon!=null)?`<a class="conn-coords" href="https://www.google.com/maps?q=${c.lat},${c.lon}" target="_blank" rel="noopener">${c.lat.toFixed(3)}, ${c.lon.toFixed(3)}</a>`:'';
-      return `<div class="conn-row">
-        <div class="conn-main"><span class="conn-ip">${c.ip}</span><span class="conn-loc">${loc}</span>${isp}</div>
-        <div class="conn-meta"><span class="conn-label">${c.label}</span><span class="conn-bytes">${c.bytes_fmt}</span><span class="conn-sessions">${c.sessions} sess</span>${coords}</div>
-      </div>`;
-    }).join('');
+    let h=d.connections.map(c=>`<div class="conn-row"><span class="conn-ip">${c.ip}</span><span class="conn-label">${c.label}</span><span class="conn-bytes">${c.bytes_fmt}</span><span class="conn-sessions">${c.sessions} sess</span></div>`).join('');
     el.innerHTML=h;
   }catch(e){}
 }

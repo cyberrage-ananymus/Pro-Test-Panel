@@ -18,8 +18,6 @@ import uvicorn
 import httpx
 import logging
 
-from geoip import geolocate_ips
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("CyberRage")
 
@@ -680,12 +678,8 @@ async def get_connections(_=Depends(require_auth)):
             if not g["last_connected_at"] or ca > g["last_connected_at"]:
                 g["last_connected_at"] = ca
 
-    ips = list(grouped.keys())
-    geo = await geolocate_ips(http_client, ips)
-
     result = []
     for ip, g in grouped.items():
-        info = geo.get(ip, {})
         result.append({
             "ip": ip,
             "sessions": g["sessions"],
@@ -696,13 +690,6 @@ async def get_connections(_=Depends(require_auth)):
             "bytes_fmt": fmt_bytes(g["bytes"]),
             "connected_at": g["first_connected_at"],
             "last_connected_at": g["last_connected_at"],
-            "country": info.get("country"),
-            "country_code": info.get("country_code"),
-            "city": info.get("city"),
-            "isp": info.get("isp"),
-            "lat": info.get("lat"),
-            "lon": info.get("lon"),
-            "location": info.get("label", "Unknown"),
         })
     result.sort(key=lambda x: x.get("last_connected_at") or "", reverse=True)
 
